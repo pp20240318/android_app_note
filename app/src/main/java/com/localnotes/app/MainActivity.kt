@@ -2,12 +2,20 @@ package com.localnotes.app
 
 import android.content.ContentResolver
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -21,6 +29,8 @@ import com.localnotes.app.ui.browser.BrowserScreen
 import com.localnotes.app.ui.editor.EditorScreen
 import com.localnotes.app.ui.library.LibraryGateScreen
 import com.localnotes.app.ui.theme.LocalNotesTheme
+import com.localnotes.app.util.shareFile
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,16 +49,36 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun NotesRoot(vm: AppViewModel = viewModel()) {
     val contentResolver: ContentResolver = LocalContext.current.contentResolver
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val browser by vm.browser.collectAsStateWithLifecycle()
     val editor by vm.editor.collectAsStateWithLifecycle()
     val navController = rememberNavController()
 
-    if (!browser.ready) {
+    if (!browser.ready || browser.loading) {
+        if (browser.library == null) {
+            LibraryGateScreen(
+                loading = browser.loading,
+                busy = browser.busy,
+                message = browser.message,
+                onCreateLibrary = vm::createLibrary,
+                onOpenLibrary = vm::openLibrary
+            )
+            return
+        }
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            CircularProgressIndicator()
+        }
         return
     }
 
     if (browser.library == null) {
         LibraryGateScreen(
+            loading = false,
             busy = browser.busy,
             message = browser.message,
             onCreateLibrary = vm::createLibrary,
@@ -78,7 +108,35 @@ private fun NotesRoot(vm: AppViewModel = viewModel()) {
                     }
                 },
                 onRename = vm::renameNode,
-                onDelete = vm::deleteNode,
+                onToggleFavorite = vm::toggleFavorite,
+                onMoveToTrash = vm::moveToTrash,
+                onRestore = vm::restoreFromTrash,
+                onPurge = vm::purgeForever,
+                onEmptyTrash = vm::emptyTrash,
+                onToggleTrash = vm::toggleTrashView,
+                onSearch = vm::setSearchQuery,
+                onExportLibrary = {
+                    scope.launch {
+                        runCatching {
+                            val file = vm.exportLibraryZip()
+                            shareFile(context, file, "application/zip", "导出笔记库")
+                        }.onFailure {
+                            Toast.makeText(context, it.message ?: "导出失败", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                onExportDocument = { docId ->
+                    scope.launch {
+                        runCatching {
+                            val file = vm.exportDocument(docId)
+                            shareFile(context, file, "text/markdown", "导出文档")
+                        }.onFailure {
+                            Toast.makeText(context, it.message ?: "导出失败", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                },
+                onAdoptOrphans = vm::adoptOrphans,
+                onDismissIntegrity = vm::dismissIntegrity,
                 onSwitchLibrary = vm::switchLibrary,
                 onDismissMessage = vm::clearMessage
             )
@@ -96,7 +154,8 @@ private fun NotesRoot(vm: AppViewModel = viewModel()) {
                 initialPreviewMode = mode == "preview",
                 onTitleChange = vm::updateTitle,
                 onBodyChange = vm::updateBody,
-                onInsertSnippet = { vm.insertMarkdown(it) },
+                onCursorChange = vm::updateCursor,
+                onInsertSnippet = vm::insertMarkdown,
                 onImportImage = { uri, _ ->
                     val mime = contentResolver.getType(uri)
                     vm.importImage(uri, mime) {}
@@ -107,6 +166,16 @@ private fun NotesRoot(vm: AppViewModel = viewModel()) {
                 onSave = { vm.saveDocument() },
                 onSaveAndBack = {
                     vm.saveDocument { navController.popBackStack() }
+                },
+                onExport = {
+                    scope.launch {
+                        runCatching {
+                            val file = vm.exportCurrentDocument()
+                            shareFile(context, file, "text/markdown", "导出文档")
+                        }.onFailure {
+                            Toast.makeText(context, it.message ?: "导出失败", Toast.LENGTH_LONG).show()
+                        }
+                    }
                 },
                 onBack = { navController.popBackStack() },
                 onDismissMessage = vm::clearMessage

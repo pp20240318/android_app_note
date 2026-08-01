@@ -14,11 +14,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
@@ -33,12 +38,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.*
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.localnotes.app.ui.EditorUiState
 
@@ -48,18 +56,32 @@ fun EditorScreen(
     state: EditorUiState,
     initialPreviewMode: Boolean = false,
     onTitleChange: (String) -> Unit,
-    onBodyChange: (String) -> Unit,
+    onBodyChange: (String, Int) -> Unit,
+    onCursorChange: (Int) -> Unit,
     onInsertSnippet: (String) -> Unit,
     onImportImage: (Uri, String?) -> Unit,
     resolveImage: suspend (relativePath: String) -> Uri?,
     onSave: () -> Unit,
     onSaveAndBack: () -> Unit,
+    onExport: () -> Unit,
     onBack: () -> Unit,
     onDismissMessage: () -> Unit
 ) {
     var pendingBack by remember { mutableStateOf(false) }
     var previewMode by remember(initialPreviewMode, state.docId) {
         mutableStateOf(initialPreviewMode)
+    }
+    var bodyField by remember(state.docId) {
+        mutableStateOf(TextFieldValue(state.body, TextRange(state.cursor)))
+    }
+
+    LaunchedEffect(state.body, state.docId) {
+        if (bodyField.text != state.body) {
+            bodyField = TextFieldValue(
+                state.body,
+                TextRange(state.cursor.coerceIn(0, state.body.length))
+            )
+        }
     }
 
     val pickImage = rememberLauncherForActivityResult(
@@ -72,11 +94,7 @@ fun EditorScreen(
     }
 
     fun tryBack() {
-        if (state.dirty) {
-            pendingBack = true
-        } else {
-            onBack()
-        }
+        if (state.dirty) pendingBack = true else onBack()
     }
 
     BackHandler(onBack = { tryBack() })
@@ -85,14 +103,24 @@ fun EditorScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        when {
-                            previewMode && state.dirty -> "预览*"
-                            previewMode -> "预览"
-                            state.dirty -> "编辑中*"
-                            else -> "编辑文档"
+                    Column {
+                        Text(
+                            when {
+                                previewMode && state.dirty -> "预览*"
+                                previewMode -> "预览"
+                                state.dirty -> "编辑中*"
+                                state.autoSaved -> "已自动保存"
+                                else -> "编辑文档"
+                            }
+                        )
+                        if (state.saving) {
+                            Text(
+                                "保存中…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
                         }
-                    )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = { tryBack() }) {
@@ -100,12 +128,13 @@ fun EditorScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { previewMode = !previewMode }
-                    ) {
+                    IconButton(onClick = onExport) {
+                        Icon(Icons.Default.Share, contentDescription = "导出")
+                    }
+                    IconButton(onClick = { previewMode = !previewMode }) {
                         Icon(
-                            imageVector = if (previewMode) Icons.Default.Edit else Icons.Default.Visibility,
-                            contentDescription = if (previewMode) "切换到编辑" else "切换到预览"
+                            if (previewMode) Icons.Default.Edit else Icons.Default.Visibility,
+                            contentDescription = "切换模式"
                         )
                     }
                     IconButton(onClick = onSave, enabled = !state.saving) {
@@ -130,27 +159,19 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-            ) {
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 FilterChip(
                     selected = !previewMode,
                     onClick = { previewMode = false },
                     label = { Text("编辑") },
-                    leadingIcon = {
-                        Icon(Icons.Default.Edit, contentDescription = null)
-                    },
+                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                     modifier = Modifier.padding(end = 8.dp)
                 )
                 FilterChip(
                     selected = previewMode,
                     onClick = { previewMode = true },
                     label = { Text("预览") },
-                    leadingIcon = {
-                        Icon(Icons.Default.Visibility, contentDescription = null)
-                    }
+                    leadingIcon = { Icon(Icons.Default.Visibility, contentDescription = null) }
                 )
             }
 
@@ -167,8 +188,20 @@ fun EditorScreen(
                     IconButton(onClick = { onInsertSnippet("**加粗**") }) {
                         Icon(Icons.Default.FormatBold, contentDescription = "加粗")
                     }
+                    IconButton(onClick = { onInsertSnippet("*斜体*") }) {
+                        Icon(Icons.Default.FormatItalic, contentDescription = "斜体")
+                    }
                     IconButton(onClick = { onInsertSnippet("\n- 列表项\n") }) {
-                        Icon(Icons.Default.FormatListBulleted, contentDescription = "列表")
+                        Icon(Icons.Default.FormatListBulleted, contentDescription = "无序列表")
+                    }
+                    IconButton(onClick = { onInsertSnippet("\n1. 列表项\n") }) {
+                        Icon(Icons.Default.FormatListNumbered, contentDescription = "有序列表")
+                    }
+                    IconButton(onClick = { onInsertSnippet("[链接文字](https://)") }) {
+                        Icon(Icons.Default.Link, contentDescription = "链接")
+                    }
+                    IconButton(onClick = { onInsertSnippet("\n```\n代码\n```\n") }) {
+                        Icon(Icons.Default.Code, contentDescription = "代码块")
                     }
                     IconButton(onClick = { pickImage.launch(arrayOf("image/*")) }) {
                         Icon(Icons.Default.Image, contentDescription = "插入图片")
@@ -176,15 +209,19 @@ fun EditorScreen(
                 }
 
                 Text(
-                    text = "编辑模式显示 Markdown 源码；点「预览」可查看排版和图片。",
+                    text = "支持自动保存；工具栏在光标处插入。点「预览」查看排版与图片。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
                 OutlinedTextField(
-                    value = state.body,
-                    onValueChange = onBodyChange,
+                    value = bodyField,
+                    onValueChange = { value ->
+                        bodyField = value
+                        onBodyChange(value.text, value.selection.start)
+                        onCursorChange(value.selection.start)
+                    },
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(bottom = 12.dp)
@@ -194,7 +231,7 @@ fun EditorScreen(
                 )
             } else {
                 Text(
-                    text = "预览模式：图片与标题会按渲染效果显示。",
+                    text = "预览：标题 / 列表 / 加粗斜体 / 链接 / 代码块 / 图片",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     modifier = Modifier.padding(vertical = 8.dp)
@@ -202,9 +239,7 @@ fun EditorScreen(
                 MarkdownPreview(
                     body = state.body,
                     resolveImage = resolveImage,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 12.dp)
+                    modifier = Modifier.fillMaxSize().padding(bottom = 12.dp)
                 )
             }
         }
