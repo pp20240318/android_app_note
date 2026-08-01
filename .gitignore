@@ -1,0 +1,67 @@
+# Built application files
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+build/
+app/build/
+**/build/
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+.gradletasknamecache
+
+# Local configuration (SDK path, secrets)
+local.properties
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+google-services.json
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+captures/
+.navigation/
+*.hprof
+
+# NDK / CMake
+.externalNativeBuild/
+.cxx/
+obj/
+
+# Kotlin
+.kotlin/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+*~
+
+# Test / coverage
+.cxx/
+coverage/
+*.gcno
+*.gcda
+
+# Misc
+*.bak
+*.orig
+*.rej
